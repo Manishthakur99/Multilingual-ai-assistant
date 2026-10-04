@@ -59,6 +59,14 @@ Multilingual-ai-assistant/
 └── readme.md
 ```
 
+## 🌍 Try It Online
+
+No installation needed. Open the [live app](https://multilingual-ai-assistants.streamlit.app), pick a language, then type or record your question.
+
+> The app runs on Streamlit Community Cloud's free tier, so it may take a few seconds to wake up if it has been idle.
+
+
+
 ## ⚙️ Getting Started
 
 ### Prerequisites
