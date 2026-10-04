@@ -1,75 +1,93 @@
-import speech_recognition as sr
-import logging
+import io
 import os
+import logging
+
+import streamlit as st
+import speech_recognition as sr
 from gtts import gTTS
 from google import genai
-import streamlit as st
 from dotenv import load_dotenv
+
 load_dotenv()
 
 LOG_DIR = "logs"
-LOG_FILE_NAME = "application.log"
-
 os.makedirs(LOG_DIR, exist_ok=True)
-LOG_FILE_PATH = os.path.join(LOG_DIR, LOG_FILE_NAME)
-
 logging.basicConfig(
-    filename=LOG_FILE_PATH,
+    filename=os.path.join(LOG_DIR, "application.log"),
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+MODEL_NAME = "gemini-2.5-flash" 
+LANGUAGES = {
+    "English": ("en-IN", "en"),
+    "Hindi": ("hi-IN", "hi"),
+}
 
-def takeCommand():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Listening....")
-        r.adjust_for_ambient_noise(source, duration=0.5)
-        r.pause_threshold = 1
-        audio = r.listen(source)
+
+def get_api_key():
+   
     try:
-        print("Recognizing...")
-        query = r.recognize_google(audio, language='en-in')
-        print(f"User said: {query}\n")
+        return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        return os.getenv("GEMINI_API_KEY")
+
+
+def transcribe(audio_file, language_code):
+    r = sr.Recognizer()
+    with sr.AudioFile(audio_file) as source:
+        audio = r.record(source)
+    try:
+        return r.recognize_google(audio, language=language_code)
     except Exception as e:
         logging.info(e)
-        print("Say that again please")
-        return "None"
-    return query
-
-
-def text_to_speech(text):
-    ttx = gTTS(text=text, lang="en")
-    ttx.save("speech.mp3")
+        return None
 
 
 def gemini_model(user_input):
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=user_input
-    )
-    results = response.text
-    return results
+    api_key = get_api_key()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY set nahi hai")
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(model=MODEL_NAME, contents=user_input)
+    return response.text
+
+
+def text_to_speech(text, lang="en"):
+    fp = io.BytesIO()
+    gTTS(text=text, lang=lang).write_to_fp(fp)   
+    return fp.getvalue()
 
 
 def main():
     st.title("Multilingual AI Assistant")
-    if st.button("Ask me anything!"):
-        with st.spinner("Listening..."):
-            text = takeCommand()
-            response = gemini_model(text)
-            text_to_speech(response)
 
-            audio_file = open("speech.mp3", 'rb')
-            audio_bytes = audio_file.read()
+    language = st.selectbox("Language", list(LANGUAGES.keys()))
+    sr_code, tts_code = LANGUAGES[language]
 
-            st.text_area(label="Response:", value=response, height=350)
-            st.audio(audio_bytes, format='audio/mp3')
-            st.download_button(label="Download Speech",
-                                data=audio_bytes,
-                                file_name="response.mp3",
-                                mime="audio/mp3",
-                )
+    user_text = st.text_input("Type your question")
+    voice = st.audio_input("Or record your question")
+
+    question = None
+    if user_text:
+        question = user_text
+    elif voice is not None:
+        with st.spinner("Recognizing..."):
+            question = transcribe(voice, sr_code)
+        if question:
+            st.write(f"**You said:** {question}")
+        else:
+            st.warning("Samajh nahi aaya, dobara bolo.")
+
+    if question:
+        try:
+            with st.spinner("Thinking..."):
+                answer = gemini_model(question)
+            st.write("**Assistant:**", answer)
+            st.audio(text_to_speech(answer, tts_code), format="audio/mp3")
+        except Exception as e:
+            logging.error(e)
+            st.error(f"Error: {e}")
+
 
 main()
